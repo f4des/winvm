@@ -18,13 +18,13 @@
 ⠀⠀⠀⠀⠑⠠⢀⣀⣀⠤⠞⠉⠉⠙⠓⠤⣦⣀⣀⠤⠞⠁⠀⠀⠀⠀
 ```
 
-A cross-platform shell script for managing Windows VMs using Docker/Podman and the [dockurr/windows](https://github.com/dockurr/windows) image.
+A cross-platform (hopefully) shell script for managing Windows VMs using Docker/Podman and the [dockurr/windows](https://github.com/dockurr/windows) image and built on top of [Omarchy's Windows VM script](https://github.com/basecamp/omarchy/blob/master/bin/omarchy-windows-vm).
 
 ## Features
 
-- **Cross-Distribution Support** - Works on Arch, Debian/Ubuntu, Fedora, openSUSE, Void, Alpine, and more
+- **Cross-Distribution Support** - Works on Arch, might work on Debian/Ubuntu, Fedora, openSUSE, Void, Alpine, and maybe more
 - **Docker & Podman** - Automatically detects available container engine
-- **Docker Compose v1 & v2** - Supports both standalone and plugin versions
+- **Docker Compose v1 & v2** - Could support both standalone and plugin versions
 - **Multiple Desktop Environments** - Auto-detects display scaling for Niri, Hyprland, Sway, GNOME, KDE
 - **RDP Connection** - Connects via FreeRDP with automatic client detection
 - **Backup & Restore** - Compressed backups using zstd
@@ -32,12 +32,11 @@ A cross-platform shell script for managing Windows VMs using Docker/Podman and t
 - **No External TUI Dependencies** - Pure bash UI, no gum/dialog required
 
 ## Requirements
-
+- These should all be caught and provided for in the install script, but if not:
 - **Container Engine**: Docker or Podman
 - **Virtualization**: KVM support (`/dev/kvm`)
 - **RDP Client**: FreeRDP (`xfreerdp3`, `xfreerdp`, or `freerdp`)
 - **Utilities**: `jq`, `zstd`, `bc`, `netcat`
-
 ## Installation
 
 1. Download the script:
@@ -107,26 +106,26 @@ winvm remove
 
 Configuration is stored in `~/.config/winvm-uni/paths.conf`:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `COMPOSE_DIR` | `~/.local/share/docker/winvm-uni` | Docker compose file location |
-| `STORAGE_DIR` | `~/.winvm-uni` | Windows virtual disk storage |
-| `SHARED_DIR` | `~/Windows-uni` | Shared folder between host/guest |
+| Setting       | Default                           | Description                      |
+| ------------- | --------------------------------- | -------------------------------- |
+| `COMPOSE_DIR` | `~/.local/share/docker/winvm-uni` | Docker compose file location     |
+| `STORAGE_DIR` | `~/.winvm-uni`                    | Windows virtual disk storage     |
+| `SHARED_DIR`  | `~/Windows-uni`                   | Shared folder between host/guest |
 
 ## Supported Distributions
 
-| Distribution | Package Manager | Tested |
-|--------------|-----------------|--------|
-| CachyOS / Arch Linux | pacman/yay/paru | ✅ |
-| Debian/Ubuntu | apt | ❌ |
-| Fedora/RHEL | dnf | ❌ |
-| openSUSE | zypper | ❌ |
-| Void Linux | xbps | ❌ |
-| Alpine | apk | ❌ |
-| Gentoo | emerge | ❌ |
-| NixOS | nix-env | ❌ |
+| Distribution         | Package Manager | Tested |
+| -------------------- | --------------- | ------ |
+| CachyOS / Arch Linux | pacman/yay/paru | ✅      |
+| Debian/Ubuntu        | apt             | ❌      |
+| Fedora/RHEL          | dnf             | ❌      |
+| openSUSE             | zypper          | ❌      |
+| Void Linux           | xbps            | ❌      |
+| Alpine               | apk             | ❌      |
+| Gentoo               | emerge          | ❌      |
+| NixOS                | nix-env         | ❌      |
 
-## Supported Desktop Environments
+## Likely Supported Desktop Environments
 
 Display scaling auto-detection works with:
 - Niri
@@ -138,10 +137,10 @@ Display scaling auto-detection works with:
 
 ## Ports
 
-| Port | Service |
-|------|---------|
+| Port | Service               |
+| ---- | --------------------- |
 | 8006 | Web-based VNC console |
-| 3389 | RDP (TCP/UDP) |
+| 3389 | RDP (TCP/UDP)         |
 
 ## Troubleshooting
 
