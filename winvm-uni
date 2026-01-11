@@ -1,0 +1,1639 @@
+#!/bin/bash
+# Huge Thanks to the team at Omarchy for their great windows VM Script that this is built on top of.
+# https://github.com/basecamp/omarchy/blob/master/bin/omarchy-windows-vm
+#
+# windows VM Manager
+# A wrapper script for managing windows VMs using dockurr/windows in Docker/Podman
+#
+# Usage: winvm [command] [options]
+# Run 'winvm help' for full usage information
+#
+
+# ============================================================================
+# COLORS & STYLING
+# ============================================================================
+
+# Colors (disabled if not a terminal)
+if [[ -t 1 ]]; then
+  RED='\e[0;31m'
+  GREEN='\e[0;32m'
+  YELLOW='\e[0;33m'
+  BLUE='\e[0;34m'
+  MAGENTA='\e[0;35m'
+  CYAN='\e[0;36m'
+  BOLD='\e[1m'
+  DIM='\e[2m'
+  RESET='\e[0m'
+else
+  RED='' GREEN='' YELLOW='' BLUE='' MAGENTA='' CYAN='' BOLD='' DIM='' RESET=''
+fi
+
+# Styled output helpers
+msg_success() { echo -e "${GREEN}✅ $1${RESET}"; }
+msg_error() { echo -e "${RED}❌ $1${RESET}"; }
+msg_warn() { echo -e "${YELLOW}⚠️  $1${RESET}"; }
+msg_info() { echo -e "${CYAN}ℹ️  $1${RESET}"; }
+
+# Splash screen
+show_splash() {
+  echo -e "${BOLD}${CYAN}"
+  cat <<'EOF'
+  ⠀⠀⠀⠀⠀⠀⣀⠤⣒⣊⣭⠭⠉⠉⠑⠒⠢⠤⣀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢠⢊⡵⣪⡿⠋⠀⠀⠀⠀⠀⠀⠀⠁⠪⣝⢦⠀⠀⠀⠀⠀
+⠀⠀⠀⢠⠃⣾⣿⠏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢹⡄⢣⠀⠀⠀⠀
+⠀⠀⠀⣾⠰⣿⣿⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡇⢸⡄⠀⠀⠀
+⠀⠀⢀⣿⢠⣿⣿⣸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢿⡇⣼⣇⠀⠀⠀
+⠀⠀⢿⣿⡿⣿⣿⣿⣷⣶⣶⣶⣶⣶⣆⣀⣀⣀⣹⣿⡿⣿⢿⠀⠀⠀
+⠀⢀⣯⣿⣧⣿⣿⣿⣿⠿⣋⣥⠖⠢⢌⠙⢿⣶⣼⣿⢁⢸⣾⡧⠀⠀
+⠀⠈⢿⢹⣶⣉⡉⠩⠰⣾⠏⠀⠀⠀⠀⠈⠂⠌⢉⣡⣾⢠⢽⣧⣄⠀
+⠀⢀⠞⠹⣿⠃⠀⠀⣸⠇⠀⢀⣤⣤⣀⠀⠀⠀⠀⠘⣿⠀⠢⡙⢿⣧
+⣰⣃⠤⣿⣌⢀⠀⠀⢸⣤⣾⠿⠿⠿⠿⣿⣦⡀⠀⢀⠏⢁⡴⠊⡂⣿
+⣿⡇⠐⢝⠿⣿⡯⠲⢿⣿⣿⡏⠀⠀⠀⠀⠉⠛⠂⠌⠰⡿⠁⣠⣿⠇
+⠹⣿⣤⣶⡏⠀⠈⠐⡀⢻⣿⠤⠤⠀⡀⠀⠀⡠⠀⠀⠀⢐⣴⡿⠋⠀
+⠀⠹⣿⠻⣇⠠⢂⣐⡳⠤⢣⢰⣾⣦⢸⣖⠄⣐⣀⡒⢄⢠⣸⠁⠀⠀
+⠀⠀⠈⢶⣄⠄⢯⣈⣻⡇⠸⣿⣿⣿⡷⠀⣻⣉⠿⠿⢘⣨⠇⠀⠀⠀
+⠀⠀⠀⠀⠑⠠⢀⣀⣀⠤⠞⠉⠉⠙⠓⠤⣦⣀⣀⠤⠞⠁⠀⠀⠀⠀
+EOF
+  echo -e "${RESET}"
+  echo -e "${BOLD}${MAGENTA}    ╦ ╦╦╔╗╔╦  ╦╔╦╗   ╦ ╦╔╗╔╦╦  ╦╔═╗╦═╗╔═╗╔═╗╦  ${RESET}"
+  echo -e "${BOLD}${MAGENTA}    ║║║║║║║╚╗╔╝║║║───║ ║║║║║╚╗╔╝║╣ ╠╦╝╚═╗╠═╣║  ${RESET}"
+  echo -e "${BOLD}${MAGENTA}    ╚╩╝╩╝╚╝ ╚╝ ╩ ╩   ╚═╝╝╚╝╩ ╚╝ ╚═╝╩╚═╚═╝╩ ╩╩═╝${RESET}"
+  echo ""
+  echo -e "${DIM}    WinVM Manager - Cross-Platform Edition${RESET}"
+  echo ""
+}
+
+# ============================================================================
+# GLOBAL CONFIGURATION & ENGINE DETECTION
+# ============================================================================
+
+# Detect container engine (prioritize Docker, fallback to Podman)
+if command -v docker &>/dev/null; then
+  ENGINE="docker"
+  # Check for docker compose v2 (plugin) vs v1 (standalone)
+  if docker compose version &>/dev/null; then
+    COMPOSE_CMD="docker compose"
+  elif command -v docker-compose &>/dev/null; then
+    COMPOSE_CMD="docker-compose"
+  else
+    COMPOSE_CMD="docker compose" # Will fail with helpful message if neither exists
+  fi
+elif command -v podman &>/dev/null; then
+  ENGINE="podman"
+  COMPOSE_CMD="podman-compose"
+else
+  ENGINE="docker"
+  COMPOSE_CMD="docker compose"
+fi
+
+# ============================================================================
+# INSTANCE CONFIGURATION
+# ============================================================================
+
+# Parse --instance flag before anything else (needed for config loading)
+# Strip it from args so command dispatcher doesn't see it
+INSTANCE_NAME="default"
+FILTERED_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --instance|-i)
+      INSTANCE_NAME="$2"
+      shift 2
+      ;;
+    *)
+      FILTERED_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${FILTERED_ARGS[@]}"  # Set args without --instance flag
+
+# Config directory for this instance
+CONFIG_DIR="$HOME/.config/winvm-uni/$INSTANCE_NAME"
+CONFIG_FILE="$CONFIG_DIR/paths.conf"
+
+# ============================================================================
+# PATH CONFIGURATION
+# ============================================================================
+
+# Default paths and settings (instance name used in defaults)
+DEFAULT_CONTAINER_NAME="$INSTANCE_NAME"
+DEFAULT_COMPOSE="$HOME/.local/share/docker/winvm-uni/$INSTANCE_NAME"
+DEFAULT_STORAGE="$HOME/.winvm-uni/$INSTANCE_NAME"
+DEFAULT_SHARED="$HOME/windows-uni/$INSTANCE_NAME"
+
+# Default RDP client settings
+DEFAULT_RDP_CLIENT_TYPE="freerdp"                     # "freerdp", "remmina", or "both"
+DEFAULT_RDP_DEFAULT="freerdp"                         # Default client when both installed
+
+# Load existing config from file if it exists, otherwise use defaults
+if [ -f "$CONFIG_FILE" ]; then
+  source "$CONFIG_FILE"
+  # Ensure settings have defaults if not in older config files
+  CONTAINER_NAME="${CONTAINER_NAME:-$DEFAULT_CONTAINER_NAME}"
+  RDP_CLIENT_TYPE="${RDP_CLIENT_TYPE:-$DEFAULT_RDP_CLIENT_TYPE}"
+  RDP_DEFAULT="${RDP_DEFAULT:-$DEFAULT_RDP_DEFAULT}"
+else
+  CONTAINER_NAME="$DEFAULT_CONTAINER_NAME"
+  COMPOSE_DIR="$DEFAULT_COMPOSE"
+  STORAGE_DIR="$DEFAULT_STORAGE"
+  SHARED_DIR="$DEFAULT_SHARED"
+  RDP_CLIENT_TYPE="$DEFAULT_RDP_CLIENT_TYPE"
+  RDP_DEFAULT="$DEFAULT_RDP_DEFAULT"
+fi
+
+COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+RDP_FILE="$COMPOSE_DIR/winvm.remmina"
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+#
+# Detect the system's package manager
+# Sets PKG_MANAGER and PKG_INSTALL_CMD global variables
+# Returns: 0 on success, 1 if no supported package manager found
+#
+detect_package_manager() {
+  # Check for AUR helpers first (Arch-based)
+  if command -v yay &>/dev/null; then
+    PKG_MANAGER="yay"
+    PKG_INSTALL_CMD="yay -S --needed --noconfirm"
+  elif command -v paru &>/dev/null; then
+    PKG_MANAGER="paru"
+    PKG_INSTALL_CMD="paru -S --needed --noconfirm"
+  elif command -v pacman &>/dev/null; then
+    PKG_MANAGER="pacman"
+    PKG_INSTALL_CMD="sudo pacman -S --needed --noconfirm"
+  # Debian/Ubuntu family
+  elif command -v apt &>/dev/null; then
+    PKG_MANAGER="apt"
+    PKG_INSTALL_CMD="sudo apt install -y"
+  elif command -v apt-get &>/dev/null; then
+    PKG_MANAGER="apt-get"
+    PKG_INSTALL_CMD="sudo apt-get install -y"
+  # Fedora/RHEL family
+  elif command -v dnf &>/dev/null; then
+    PKG_MANAGER="dnf"
+    PKG_INSTALL_CMD="sudo dnf install -y"
+  elif command -v yum &>/dev/null; then
+    PKG_MANAGER="yum"
+    PKG_INSTALL_CMD="sudo yum install -y"
+  # openSUSE
+  elif command -v zypper &>/dev/null; then
+    PKG_MANAGER="zypper"
+    PKG_INSTALL_CMD="sudo zypper install -y"
+  # Void Linux
+  elif command -v xbps-install &>/dev/null; then
+    PKG_MANAGER="xbps"
+    PKG_INSTALL_CMD="sudo xbps-install -y"
+  # Alpine
+  elif command -v apk &>/dev/null; then
+    PKG_MANAGER="apk"
+    PKG_INSTALL_CMD="sudo apk add"
+  # Gentoo
+  elif command -v emerge &>/dev/null; then
+    PKG_MANAGER="emerge"
+    PKG_INSTALL_CMD="sudo emerge"
+  # NixOS (user packages)
+  elif command -v nix-env &>/dev/null; then
+    PKG_MANAGER="nix"
+    PKG_INSTALL_CMD="nix-env -iA nixpkgs."
+  else
+    PKG_MANAGER=""
+    PKG_INSTALL_CMD=""
+    return 1
+  fi
+
+  return 0
+}
+
+#
+# Detect the desktop environment or window manager
+# Sets DESKTOP_ENV global variable
+# Values: niri, hyprland, sway, gnome, kde, xfce, i3, x11, unknown
+#
+detect_desktop_environment() {
+  # Check Wayland compositors first (more specific)
+  if [ -n "$NIRI_SOCKET" ] || pgrep -x niri &>/dev/null; then
+    DESKTOP_ENV="niri"
+  elif [ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] || pgrep -x Hyprland &>/dev/null; then
+    DESKTOP_ENV="hyprland"
+  elif [ -n "$SWAYSOCK" ] || pgrep -x sway &>/dev/null; then
+    DESKTOP_ENV="sway"
+  # Check XDG_CURRENT_DESKTOP for major DEs
+  elif [ -n "$XDG_CURRENT_DESKTOP" ]; then
+    case "${XDG_CURRENT_DESKTOP,,}" in # lowercase comparison
+    *gnome*)
+      DESKTOP_ENV="gnome"
+      ;;
+    *kde* | *plasma*)
+      DESKTOP_ENV="kde"
+      ;;
+    *xfce*)
+      DESKTOP_ENV="xfce"
+      ;;
+    *i3*)
+      DESKTOP_ENV="i3"
+      ;;
+    *sway*)
+      DESKTOP_ENV="sway"
+      ;;
+    *)
+      # Check if running under Wayland or X11
+      if [ -n "$WAYLAND_DISPLAY" ]; then
+        DESKTOP_ENV="wayland"
+      elif [ -n "$DISPLAY" ]; then
+        DESKTOP_ENV="x11"
+      else
+        DESKTOP_ENV="unknown"
+      fi
+      ;;
+    esac
+  # Fallback: check display server
+  elif [ -n "$WAYLAND_DISPLAY" ]; then
+    DESKTOP_ENV="wayland"
+  elif [ -n "$DISPLAY" ]; then
+    DESKTOP_ENV="x11"
+  else
+    DESKTOP_ENV="unknown"
+  fi
+
+  return 0
+}
+
+#
+# Get the correct package name for the current distribution
+# Args:
+#   $1 - Generic package name (e.g., "freerdp", "netcat")
+# Returns: Distribution-specific package name via stdout
+#
+get_package_name() {
+  local generic_name="$1"
+
+  case "$PKG_MANAGER" in
+  yay | paru | pacman)
+    case "$generic_name" in
+    freerdp) echo "freerdp" ;;
+    remmina) echo "remmina" ;;
+    netcat) echo "openbsd-netcat" ;;
+    docker) echo "docker" ;;
+    docker-compose) echo "docker-compose" ;;
+    podman) echo "podman" ;;
+    podman-compose) echo "podman-compose" ;;
+    jq) echo "jq" ;;
+    zstd) echo "zstd" ;;
+    bc) echo "bc" ;;
+    acl) echo "acl" ;;
+    libnotify) echo "libnotify" ;;
+    *) echo "$generic_name" ;;
+    esac
+    ;;
+  apt | apt-get)
+    case "$generic_name" in
+    freerdp) echo "freerdp2-x11" ;;
+    remmina) echo "remmina" ;;
+    netcat) echo "netcat-openbsd" ;;
+    docker) echo "docker.io" ;;
+    docker-compose) echo "docker-compose" ;;
+    podman) echo "podman" ;;
+    podman-compose) echo "podman-compose" ;;
+    jq) echo "jq" ;;
+    zstd) echo "zstd" ;;
+    bc) echo "bc" ;;
+    acl) echo "acl" ;;
+    libnotify) echo "libnotify-bin" ;;
+    *) echo "$generic_name" ;;
+    esac
+    ;;
+  dnf | yum)
+    case "$generic_name" in
+    freerdp) echo "freerdp" ;;
+    remmina) echo "remmina" ;;
+    netcat) echo "nmap-ncat" ;;
+    docker) echo "docker-ce" ;; # Usually from Docker repo
+    docker-compose) echo "docker-compose-plugin" ;;
+    podman) echo "podman" ;;
+    podman-compose) echo "podman-compose" ;;
+    jq) echo "jq" ;;
+    zstd) echo "zstd" ;;
+    bc) echo "bc" ;;
+    acl) echo "acl" ;;
+    libnotify) echo "libnotify" ;;
+    *) echo "$generic_name" ;;
+    esac
+    ;;
+  zypper)
+    case "$generic_name" in
+    freerdp) echo "freerdp" ;;
+    remmina) echo "remmina" ;;
+    netcat) echo "netcat-openbsd" ;;
+    docker) echo "docker" ;;
+    docker-compose) echo "docker-compose" ;;
+    podman) echo "podman" ;;
+    podman-compose) echo "podman-compose" ;;
+    jq) echo "jq" ;;
+    zstd) echo "zstd" ;;
+    bc) echo "bc" ;;
+    acl) echo "acl" ;;
+    libnotify) echo "libnotify-tools" ;;
+    *) echo "$generic_name" ;;
+    esac
+    ;;
+  xbps)
+    case "$generic_name" in
+    freerdp) echo "freerdp" ;;
+    remmina) echo "remmina" ;;
+    netcat) echo "netcat-openbsd" ;;
+    docker) echo "docker" ;;
+    docker-compose) echo "docker-compose" ;;
+    podman) echo "podman" ;;
+    podman-compose) echo "podman-compose" ;;
+    jq) echo "jq" ;;
+    zstd) echo "zstd" ;;
+    bc) echo "bc" ;;
+    acl) echo "acl" ;;
+    libnotify) echo "libnotify" ;;
+    *) echo "$generic_name" ;;
+    esac
+    ;;
+  apk)
+    case "$generic_name" in
+    freerdp) echo "freerdp" ;;
+    remmina) echo "remmina" ;;
+    netcat) echo "netcat-openbsd" ;;
+    docker) echo "docker" ;;
+    docker-compose) echo "docker-compose" ;;
+    podman) echo "podman" ;;
+    podman-compose) echo "podman-compose" ;;
+    jq) echo "jq" ;;
+    zstd) echo "zstd" ;;
+    bc) echo "bc" ;;
+    acl) echo "acl" ;;
+    libnotify) echo "libnotify" ;;
+    *) echo "$generic_name" ;;
+    esac
+    ;;
+  *)
+    # Fallback: return generic name
+    echo "$generic_name"
+    ;;
+  esac
+}
+
+#
+# Get display scale factor for the current desktop environment
+# Returns: Scale factor as a decimal (e.g., 1, 1.5, 2)
+#
+get_display_scale() {
+  local scale=1
+
+  case "$DESKTOP_ENV" in
+  niri)
+    if command -v niri &>/dev/null; then
+      scale=$(niri msg -j outputs 2>/dev/null |
+        jq -r '.[] | select(.focused == true) | .scale' 2>/dev/null || echo 1)
+    fi
+    ;;
+  hyprland)
+    if command -v hyprctl &>/dev/null; then
+      scale=$(hyprctl monitors -j 2>/dev/null |
+        jq -r '.[] | select(.focused == true) | .scale' 2>/dev/null || echo 1)
+    fi
+    ;;
+  sway)
+    if command -v swaymsg &>/dev/null; then
+      scale=$(swaymsg -t get_outputs 2>/dev/null |
+        jq -r '.[] | select(.focused == true) | .scale' 2>/dev/null || echo 1)
+    fi
+    ;;
+  gnome)
+    if command -v gsettings &>/dev/null; then
+      local gnome_scale=$(gsettings get org.gnome.desktop.interface scaling-factor 2>/dev/null | grep -oP '\d+')
+      [ -n "$gnome_scale" ] && [ "$gnome_scale" -gt 0 ] && scale=$gnome_scale
+    fi
+    ;;
+  kde)
+    if command -v kreadconfig5 &>/dev/null; then
+      local kde_scale=$(kreadconfig5 --group KScreen --key ScaleFactor 2>/dev/null)
+      [ -n "$kde_scale" ] && scale=$kde_scale
+    fi
+    ;;
+  *)
+    # Try to detect from GDK_SCALE or QT_SCALE_FACTOR env vars
+    if [ -n "$GDK_SCALE" ]; then
+      scale=$GDK_SCALE
+    elif [ -n "$QT_SCALE_FACTOR" ]; then
+      scale=$QT_SCALE_FACTOR
+    fi
+    ;;
+  esac
+
+  # Ensure we return a valid number
+  if ! [[ "$scale" =~ ^[0-9.]+$ ]]; then
+    scale=1
+  fi
+
+  echo "$scale"
+}
+
+# ============================================================================
+# DISTRO COMPATIBILITY FUNCTIONS
+# ============================================================================
+
+# Detect available RDP client based on config and installed software
+# Sets RDP_CLIENT global variable
+# Uses RDP_DEFAULT from config to determine preferred client
+detect_rdp_client() {
+  local has_freerdp=false
+  local has_remmina=false
+
+  # Check what's installed
+  if command -v xfreerdp3 &>/dev/null || command -v xfreerdp &>/dev/null || command -v freerdp &>/dev/null; then
+    has_freerdp=true
+  fi
+  if command -v remmina &>/dev/null; then
+    has_remmina=true
+  fi
+
+  # Use configured default if available
+  case "$RDP_DEFAULT" in
+    "remmina")
+      if [ "$has_remmina" = true ]; then
+        RDP_CLIENT="remmina"
+        return 0
+      elif [ "$has_freerdp" = true ]; then
+        # Fallback to freerdp if remmina not available
+        if command -v xfreerdp3 &>/dev/null; then
+          RDP_CLIENT="xfreerdp3"
+        elif command -v xfreerdp &>/dev/null; then
+          RDP_CLIENT="xfreerdp"
+        else
+          RDP_CLIENT="freerdp"
+        fi
+        return 0
+      fi
+      ;;
+    "freerdp"|*)
+      if [ "$has_freerdp" = true ]; then
+        if command -v xfreerdp3 &>/dev/null; then
+          RDP_CLIENT="xfreerdp3"
+        elif command -v xfreerdp &>/dev/null; then
+          RDP_CLIENT="xfreerdp"
+        else
+          RDP_CLIENT="freerdp"
+        fi
+        return 0
+      elif [ "$has_remmina" = true ]; then
+        # Fallback to remmina if freerdp not available
+        RDP_CLIENT="remmina"
+        return 0
+      fi
+      ;;
+  esac
+
+  RDP_CLIENT=""
+  return 1
+}
+
+# Check if a port is open (works with nc, ncat, or netcat)
+# Args: $1 = host, $2 = port
+# Returns: 0 if port is open, 1 if closed/timeout
+check_port() {
+  local host="$1"
+  local port="$2"
+
+  # Try different netcat variants
+  if command -v nc &>/dev/null; then
+    timeout 2 nc -z "$host" "$port" 2>/dev/null
+  elif command -v ncat &>/dev/null; then
+    timeout 2 ncat -z "$host" "$port" 2>/dev/null
+  elif command -v netcat &>/dev/null; then
+    timeout 2 netcat -z "$host" "$port" 2>/dev/null
+  else
+    # Fallback: use bash's built-in /dev/tcp (if available)
+    timeout 2 bash -c "echo >/dev/tcp/$host/$port" 2>/dev/null
+  fi
+}
+
+# Send desktop notification (optional - fails silently if not available)
+# Args: $1 = title, $2 = message, $3 = timeout in ms (optional)
+notify() {
+  local title="$1"
+  local message="$2"
+  local timeout="${3:-5000}"
+
+  if command -v notify-send &>/dev/null; then
+    notify-send "$title" "$message" -t "$timeout" 2>/dev/null || true
+  fi
+  # Silent fallback - just print to terminal
+  echo "$title: $message"
+}
+
+# Open URL in browser (with fallback)
+# Args: $1 = URL
+open_url() {
+  local url="$1"
+
+  if command -v xdg-open &>/dev/null; then
+    xdg-open "$url" 2>/dev/null &
+  elif command -v open &>/dev/null; then
+    open "$url" 2>/dev/null &
+  elif command -v wslview &>/dev/null; then
+    wslview "$url" 2>/dev/null &
+  else
+    echo "Open in browser: $url"
+  fi
+}
+
+# Fix KVM permissions (optional - provides guidance if setfacl unavailable)
+# Returns: 0 if KVM is accessible, 1 if not
+fix_kvm_permissions() {
+  # Already writable
+  [ -w /dev/kvm ] && return 0
+
+  if command -v setfacl &>/dev/null; then
+    sudo setfacl -m "u:$USER:rw" /dev/kvm 2>/dev/null && return 0
+  fi
+
+  # Provide manual instructions
+  echo "⚠️  /dev/kvm is not writable. Try one of:"
+  echo "   sudo usermod -aG kvm $USER  (then log out/in)"
+  echo "   sudo chmod 666 /dev/kvm     (temporary fix)"
+  return 1
+}
+
+# ============================================================================
+# UI HELPER FUNCTIONS
+# ============================================================================
+
+# Print a simple box around text
+# Usage: ui_box "line1" "line2" ...
+ui_box() {
+  echo ""
+  echo "┌────────────────────────────────────────┐"
+  for line in "$@"; do
+    printf "│ %-38s │\n" "$line"
+  done
+  echo "└────────────────────────────────────────┘"
+  echo ""
+}
+
+# Prompt for input - prints to stderr so $() capture works
+# Usage: result=$(ui_prompt "Question" "default")
+ui_prompt() {
+  local prompt="$1"
+  local default="$2"
+  local input
+
+  if [ -n "$default" ]; then
+    echo -n "$prompt [$default]: " >&2
+  else
+    echo -n "$prompt: " >&2
+  fi
+
+  read -r input
+  echo "${input:-$default}"
+}
+
+# Prompt for password (hidden input)
+# Usage: pass=$(ui_prompt_password "Enter password" "default")
+ui_prompt_password() {
+  local prompt="$1"
+  local default="$2"
+  local input
+
+  if [ -n "$default" ]; then
+    echo -n "$prompt [$default]: " >&2
+  else
+    echo -n "$prompt: " >&2
+  fi
+
+  read -rs input
+  echo "" >&2
+  echo "${input:-$default}"
+}
+
+# Show numbered menu and get selection
+# Usage: choice=$(ui_menu "Header" "opt1" "opt2" "opt3")
+ui_menu() {
+  local header="$1"
+  shift
+  local options=("$@")
+
+  echo "" >&2
+  echo "$header" >&2
+  local i=1
+  for opt in "${options[@]}"; do
+    echo "  $i) $opt" >&2
+    ((i++))
+  done
+
+  local selection
+  while true; do
+    echo -n "Enter number [1-${#options[@]}]: " >&2
+    read -r selection
+    if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le ${#options[@]} ]; then
+      echo "${options[$((selection - 1))]}"
+      return 0
+    fi
+    echo "Invalid selection." >&2
+  done
+}
+
+# Yes/No confirmation
+# Usage: ui_confirm "Proceed?" && echo "yes" || echo "no"
+ui_confirm() {
+  local question="$1"
+  echo -n "$question [y/N]: " >&2
+  read -r response
+  [[ "${response,,}" =~ ^(y|yes)$ ]]
+}
+
+# Run command with simple "working..." message
+# Usage: ui_working "Compressing..." tar -czf ...
+ui_working() {
+  local msg="$1"
+  shift
+  echo -n "$msg " >&2
+  "$@"
+  local ret=$?
+  echo "done." >&2
+  return $ret
+}
+
+#
+# Install packages using the detected package manager
+# Args:
+#   $@ - List of generic package names to install
+# Returns: 0 on success, 1 on failure
+#
+install_packages() {
+  local packages=()
+
+  # Convert generic names to distro-specific names
+  for pkg in "$@"; do
+    packages+=("$(get_package_name "$pkg")")
+  done
+
+  if [ -z "$PKG_INSTALL_CMD" ]; then
+    msg_error "No supported package manager detected!"
+    echo "   Please install the following packages manually:"
+    printf "   - %s\n" "${packages[@]}"
+    return 1
+  fi
+
+  echo "Installing packages: ${packages[*]}"
+
+  # Special handling for nix (different syntax)
+  if [ "$PKG_MANAGER" = "nix" ]; then
+    for pkg in "${packages[@]}"; do
+      nix-env -iA "nixpkgs.$pkg" || return 1
+    done
+  else
+    $PKG_INSTALL_CMD "${packages[@]}"
+  fi
+}
+
+#
+# Check system prerequisites for running windows VM
+# Args:
+#   $1 - Disk size in GB (optional, defaults to 64)
+#
+check_prerequisites() {
+  local DISK_SIZE_GB=${1:-64}
+  local REQUIRED_SPACE=$((DISK_SIZE_GB + 10)) # +10GB for windows ISO overhead
+
+  # Check for KVM virtualization support
+  if [ ! -e /dev/kvm ]; then
+    ui_box \
+      "❌ KVM virtualization not available!" \
+      "" \
+      "Please enable virtualization in BIOS or run:" \
+      "  sudo modprobe kvm-intel  # Intel" \
+      "  sudo modprobe kvm-amd    # AMD"
+    exit 1
+  fi
+
+  # Auto-fix KVM permissions if needed
+  fix_kvm_permissions || true
+
+  # Check available disk space
+  AVAILABLE_SPACE=$(df "$HOME" | awk 'NR==2 {print int($4/1024/1024)}')
+  if [ "$AVAILABLE_SPACE" -lt "$REQUIRED_SPACE" ]; then
+    msg_error "Insufficient disk space!"
+    echo "   Available: ${AVAILABLE_SPACE}GB"
+    echo "   Required: ${REQUIRED_SPACE}GB (${DISK_SIZE_GB}GB disk + 10GB for Windows image)"
+    exit 1
+  fi
+}
+
+#
+# Wait for RDP service to become available
+# Uses simple port checking rather than authentication
+#
+wait_for_rdp_ready() {
+  local TIMEOUT=120
+  local ELAPSED=0
+
+  echo "Waiting for RDP service to be ready..."
+
+  # Poll port 3389 until it accepts connections
+  while ! check_port 127.0.0.1 3389; do
+    sleep 2
+    ELAPSED=$((ELAPSED + 2))
+
+    if [ $ELAPSED -gt $TIMEOUT ]; then
+      msg_error "Timeout waiting for RDP port!"
+      echo "   Check progress at: http://127.0.0.1:8006"
+      return 1
+    fi
+
+    echo -n "."
+  done
+
+  echo " Ready!"
+  echo ""
+
+  # Give RDP service a few extra seconds to fully initialize
+  sleep 3
+  return 0
+}
+
+# ============================================================================
+# MAIN COMMAND FUNCTIONS
+# ============================================================================
+
+#
+# Install and configure a new windows VM
+# Prompts user for resource allocation and credentials
+#
+install_windows() {
+  # Handle Ctrl+C gracefully
+  trap "echo ''; msg_warn 'Installation cancelled by user'; exit 1" INT
+
+  # Show splash screen
+  show_splash
+
+  # -------------------------------------------------------------------------
+  # Check for existing installation
+  # -------------------------------------------------------------------------
+
+  if [ -f "$COMPOSE_FILE" ]; then
+    msg_warn "Windows VM is already configured at: $COMPOSE_DIR"
+    if ui_confirm "Reconfigure the VM?"; then
+      msg_info "Proceeding with reconfiguration..."
+    else
+      msg_info "Use 'winvm launch' to start the existing VM."
+      exit 0
+    fi
+  fi
+
+  # -------------------------------------------------------------------------
+  # Prompt for installation paths
+  # -------------------------------------------------------------------------
+
+  CONTAINER_NAME=$(ui_prompt "Container name" "$DEFAULT_CONTAINER_NAME")
+  COMPOSE_DIR=$(ui_prompt "Docker-compose.yml location" "$DEFAULT_COMPOSE")
+  STORAGE_DIR=$(ui_prompt "Windows Virtual Disk location" "$DEFAULT_STORAGE")
+  SHARED_DIR=$(ui_prompt "Shared folder location" "$DEFAULT_SHARED")
+
+  # Resolve ~ to actual home directory
+  COMPOSE_DIR="${COMPOSE_DIR/#\~/$HOME}"
+  STORAGE_DIR="${STORAGE_DIR/#\~/$HOME}"
+  SHARED_DIR="${SHARED_DIR/#\~/$HOME}"
+  COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+  RDP_FILE="$COMPOSE_DIR/winvm.remmina"
+
+  # Save paths for future runs (RDP settings appended after prompts)
+  mkdir -p "$CONFIG_DIR"
+  echo "CONTAINER_NAME=\"$CONTAINER_NAME\"" >"$CONFIG_FILE"
+  echo "COMPOSE_DIR=\"$COMPOSE_DIR\"" >>"$CONFIG_FILE"
+  echo "STORAGE_DIR=\"$STORAGE_DIR\"" >>"$CONFIG_FILE"
+  echo "SHARED_DIR=\"$SHARED_DIR\"" >>"$CONFIG_FILE"
+
+  # -------------------------------------------------------------------------
+  # Detect system configuration
+  # -------------------------------------------------------------------------
+
+  echo "Detecting system configuration..."
+
+  if ! detect_package_manager; then
+    msg_error "Could not detect a supported package manager!"
+    echo "   Supported: pacman/yay/paru, apt, dnf/yum, zypper, xbps, apk, emerge, nix"
+    exit 1
+  fi
+  echo "  Package manager: $PKG_MANAGER"
+
+  detect_desktop_environment
+  echo "  Desktop environment: $DESKTOP_ENV"
+  echo ""
+
+  # -------------------------------------------------------------------------
+  # Check prerequisites
+  # -------------------------------------------------------------------------
+
+  check_prerequisites
+
+  # -------------------------------------------------------------------------
+  # Prompt for RDP client preference
+  # -------------------------------------------------------------------------
+
+  RDP_CHOICE=$(ui_menu "Select RDP client to install:" "FreeRDP" "Remmina" "Both")
+  case "$RDP_CHOICE" in
+    "FreeRDP")
+      RDP_CLIENT_TYPE="freerdp"
+      RDP_DEFAULT="freerdp"
+      ;;
+    "Remmina")
+      RDP_CLIENT_TYPE="remmina"
+      RDP_DEFAULT="remmina"
+      ;;
+    "Both")
+      RDP_CLIENT_TYPE="both"
+      DEFAULT_CHOICE=$(ui_menu "Select default RDP client:" "FreeRDP" "Remmina")
+      if [ "$DEFAULT_CHOICE" = "FreeRDP" ]; then
+        RDP_DEFAULT="freerdp"
+      else
+        RDP_DEFAULT="remmina"
+      fi
+      ;;
+  esac
+
+  # Append RDP settings to config
+  echo "RDP_CLIENT_TYPE=\"$RDP_CLIENT_TYPE\"" >>"$CONFIG_FILE"
+  echo "RDP_DEFAULT=\"$RDP_DEFAULT\"" >>"$CONFIG_FILE"
+
+  # -------------------------------------------------------------------------
+  # Install dependencies
+  # -------------------------------------------------------------------------
+
+  echo "Checking dependencies..."
+
+  # Build RDP package list based on user choice
+  RDP_PACKAGES=""
+  case "$RDP_CLIENT_TYPE" in
+    "freerdp") RDP_PACKAGES="freerdp" ;;
+    "remmina") RDP_PACKAGES="remmina" ;;
+    "both")    RDP_PACKAGES="freerdp remmina" ;;
+  esac
+
+  install_packages \
+    $RDP_PACKAGES \
+    netcat \
+    jq \
+    zstd \
+    bc \
+    $ENGINE \
+    $COMPOSE_CMD
+
+  # -------------------------------------------------------------------------
+  # Create directories
+  # -------------------------------------------------------------------------
+
+  mkdir -p "$STORAGE_DIR"
+  mkdir -p "$COMPOSE_DIR"
+  mkdir -p "$HOME/.local/share/applications/icons"
+
+  # -------------------------------------------------------------------------
+  # Create desktop entry for easy launching
+  # -------------------------------------------------------------------------
+
+  cat <<EOF >"$HOME/.local/share/applications/winvm.desktop"
+[Desktop Entry]
+Name=Windows
+Comment=Start Windows VM via Docker and connect with RDP
+Exec=winvm launch -k
+Terminal=false
+Type=Application
+Categories=System;Virtualization;
+EOF
+
+  # -------------------------------------------------------------------------
+  # Detect system resources
+  # -------------------------------------------------------------------------
+
+  TOTAL_RAM=$(free -h | awk 'NR==2 {print $2}')
+  TOTAL_RAM_GB=$(awk 'NR==1 {printf "%d", $2/1024/1024}' /proc/meminfo)
+  TOTAL_CORES=$(nproc)
+
+  echo -e "\nSystem Resources Detected:"
+  echo "  Total RAM: $TOTAL_RAM"
+  echo "  Total CPU Cores: $TOTAL_CORES"
+  echo ""
+
+  # -------------------------------------------------------------------------
+  # Prompt for RAM allocation
+  # -------------------------------------------------------------------------
+
+  RAM_OPTIONS=()
+  for size in 2 4 8 16 32 64; do
+    [ $size -le $TOTAL_RAM_GB ] && RAM_OPTIONS+=("${size}G")
+  done
+
+  SELECTED_RAM=$(ui_menu "How much RAM for Windows VM?" "${RAM_OPTIONS[@]}")
+  [ -z "$SELECTED_RAM" ] && exit 1
+
+  # -------------------------------------------------------------------------
+  # Prompt for CPU cores allocation
+  # -------------------------------------------------------------------------
+
+  SELECTED_CORES=$(ui_prompt "CPU cores (1-$TOTAL_CORES)" "2")
+  [ -z "$SELECTED_CORES" ] && exit 1
+
+  # Validate CPU core input
+  if ! [[ "$SELECTED_CORES" =~ ^[0-9]+$ ]] ||
+    [ "$SELECTED_CORES" -lt 1 ] ||
+    [ "$SELECTED_CORES" -gt "$TOTAL_CORES" ]; then
+    echo "Invalid input. Using default: 2 cores"
+    SELECTED_CORES=2
+  fi
+
+  # -------------------------------------------------------------------------
+  # Prompt for disk size allocation
+  # -------------------------------------------------------------------------
+
+  AVAILABLE_SPACE=$(df "$HOME" | awk 'NR==2 {print int($4/1024/1024)}')
+  MAX_DISK_GB=$((AVAILABLE_SPACE - 10)) # Leave 10GB buffer
+
+  DISK_OPTIONS=()
+  for size in 32 64 128 256 512; do
+    [ $size -le $MAX_DISK_GB ] && DISK_OPTIONS+=("${size}G")
+  done
+
+  SELECTED_DISK=$(ui_menu "How much disk space? (64GB+ recommended)" "${DISK_OPTIONS[@]}")
+  [ -z "$SELECTED_DISK" ] && exit 1
+
+  # -------------------------------------------------------------------------
+  # Prompt for windows credentials
+  # -------------------------------------------------------------------------
+
+  USERNAME=$(ui_prompt "Windows username" "docker")
+  PASSWORD=$(ui_prompt_password "Windows password" "admin")
+
+  # -------------------------------------------------------------------------
+  # Display configuration summary and confirm
+  # -------------------------------------------------------------------------
+
+  ui_box \
+    "Windows VM Configuration" \
+    "" \
+    "RAM:      $SELECTED_RAM" \
+    "CPU:      $SELECTED_CORES cores" \
+    "Disk:     $SELECTED_DISK" \
+    "Username: $USERNAME" \
+    "RDP:      $RDP_CLIENT_TYPE (default: $RDP_DEFAULT)"
+
+  ui_confirm "Proceed with this configuration?" || exit 1
+
+  # -------------------------------------------------------------------------
+  # Create shared folder
+  # -------------------------------------------------------------------------
+
+  mkdir -p "$SHARED_DIR"
+
+  # -------------------------------------------------------------------------
+  # Generate docker-compose.yml
+  # -------------------------------------------------------------------------
+
+  cat <<EOF | tee "$COMPOSE_FILE" >/dev/null
+services:
+  windows:
+    image: dockurr/windows
+    container_name: $CONTAINER_NAME
+    environment:
+      VERSION: "11"
+      RAM_SIZE: "$SELECTED_RAM"
+      CPU_CORES: "$SELECTED_CORES"
+      DISK_SIZE: "$SELECTED_DISK"
+      USERNAME: "$USERNAME"
+      PASSWORD: "$PASSWORD"
+      USER_PORTS: "3389"  # Required for RDP port forwarding in user-mode networking
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - 8006:8006    # Web-based VNC console
+      - 3389:3389/tcp  # RDP
+      - 3389:3389/udp  # RDP
+    volumes:
+      - "$STORAGE_DIR:/storage"  # windows virtual disk
+      - "$SHARED_DIR:/shared"    # Shared folder between host/guest
+    restart: unless-stopped
+    stop_grace_period: 2m  # Give windows time to shut down gracefully
+EOF
+
+  # -------------------------------------------------------------------------
+  # Generate Remmina connection file
+  # -------------------------------------------------------------------------
+
+  cat <<EOF | tee "$RDP_FILE" >/dev/null
+[remmina]
+name=WinVM
+protocol=RDP
+server=127.0.0.1:3389
+username=$USERNAME
+password=
+domain=
+colordepth=99
+quality=2
+network=lan
+sound=local
+microphone=1
+shareclipboard=1
+disableclipboard=0
+cert_ignore=1
+security=
+viewmode=1
+scale=1
+window_maximize=1
+window_width=1920
+window_height=1080
+resolution_mode=2
+keyboard_grab=1
+glyph-cache=1
+relax-order-checks=1
+EOF
+
+  # -------------------------------------------------------------------------
+  # Start the container
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "Starting Windows VM installation..."
+  echo "This will download a Windows 11 image (may take 10-15 minutes)."
+  echo ""
+  echo "Monitor installation progress at: http://127.0.0.1:8006"
+  echo ""
+
+  if ! $COMPOSE_CMD -f "$COMPOSE_FILE" up -d 2>/dev/null; then
+    msg_error "Failed to start Windows VM!"
+    echo "   Common issues:"
+    echo "   - Docker daemon not running: sudo systemctl start docker"
+    echo "   - Port already in use: check if another VM is running"
+    echo "   - Permission issues: make sure you're in the docker group"
+    exit 1
+  fi
+
+  # -------------------------------------------------------------------------
+  # Success message
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "Windows VM is starting up!"
+  echo ""
+  echo "Opening browser to monitor installation..."
+  sleep 3
+  open_url "http://127.0.0.1:8006"
+
+  echo ""
+  echo "Installation is running in the background."
+  echo "You can monitor progress at: http://127.0.0.1:8006"
+  echo ""
+  echo "To stop the VM: winvm stop"
+  echo "To change resources: $COMPOSE_FILE"
+  echo ""
+}
+
+#
+# Remove windows VM and optionally delete all data
+#
+remove_windows() {
+  if ui_confirm "!!WARNING!! This will delete the VM and ALL data in $STORAGE_DIR. Proceed?"; then
+    # Stop and remove container
+    $COMPOSE_CMD -f "$COMPOSE_FILE" down 2>/dev/null
+
+    # Remove Docker image
+    $ENGINE rmi dockurr/windows 2>/dev/null
+
+    # Remove desktop entry
+    rm -f "$HOME/.local/share/applications/winvm.desktop"
+
+    # Remove VM storage
+    rm -rf "$STORAGE_DIR"
+    msg_success "Removed VM storage: $STORAGE_DIR"
+
+    # Remove docker-compose.yml directory
+    rm -rf "$COMPOSE_DIR"
+    msg_success "Removed compose config: $COMPOSE_DIR"
+
+    echo ""
+    msg_success "Windows VM removed."
+
+    # Ask about config files
+    if ui_confirm "Remove saved configuration (paths, preferences)?"; then
+      rm -rf "$HOME/.config/winvm-uni"
+      msg_success "Configuration removed."
+    else
+      echo "Configuration kept at: ~/.config/winvm-uni/"
+    fi
+
+    # Ask about shared folder - with extra warnings
+    echo ""
+    echo "┌─────────────────────────────────────────────────────────────┐"
+    echo "│  ⚠️  WARNING: SHARED FOLDER                                 │"
+    echo "│                                                             │"
+    echo "│  The shared folder may contain YOUR files that were        │"
+    echo "│  accessible from both Linux and Windows.                   │"
+    echo "│                                                             │"
+    echo "│  Location: $SHARED_DIR"
+    echo "│                                                             │"
+    echo "│  This data will be PERMANENTLY DELETED if you proceed!     │"
+    echo "└─────────────────────────────────────────────────────────────┘"
+    echo ""
+    if ui_confirm "Delete the shared folder?"; then
+      echo ""
+      if ui_confirm "ARE YOU SURE? This cannot be undone!"; then
+        rm -rf "$SHARED_DIR"
+        msg_success "Shared folder removed: $SHARED_DIR"
+      else
+        echo "Shared folder kept at: $SHARED_DIR"
+      fi
+    else
+      echo "Shared folder kept at: $SHARED_DIR"
+    fi
+  fi
+}
+
+#
+# Backup Windows VM storage to compressed archive
+#
+backup_windows() {
+  local timestamp=$(date +%Y%m%d_%H%M%S)
+  local file="$HOME/Downloads/windows_backup_$timestamp.tar.zst"
+
+  echo "Creating backup of $STORAGE_DIR to Downloads directory"
+  ui_working "Compressing..." tar --use-compress-program=zstd -cf "$file" -C "$STORAGE_DIR" .
+  msg_success "Backup saved to $file"
+}
+
+#
+# Restore windows VM storage from compressed archive
+#
+restore_windows() {
+  local file=$(ui_prompt "Path to backup file" "")
+
+  # Check if file exists
+  if [ ! -f "$file" ]; then
+    msg_error "File not found!"
+    return 1
+  fi
+
+  mkdir -p "$STORAGE_DIR"
+  ui_working "Restoring..." tar --use-compress-program=zstd -xf "$file" -C "$STORAGE_DIR"
+  msg_success "Restore complete."
+}
+
+#
+# Start Windows VM without connecting via RDP
+# Similar to 'launch -k' but skips the RDP connection
+#
+start_windows() {
+  # -------------------------------------------------------------------------
+  # Check if VM is configured
+  # -------------------------------------------------------------------------
+
+  if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "Windows VM not configured. Please run: winvm install"
+    exit 1
+  fi
+
+  # -------------------------------------------------------------------------
+  # Start container if not running
+  # -------------------------------------------------------------------------
+
+  CONTAINER_STATUS=$($ENGINE inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
+
+  if [ "$CONTAINER_STATUS" = "running" ]; then
+    msg_info "Windows VM is already running."
+    echo "   Web interface: http://127.0.0.1:8006"
+    echo "   To connect via RDP: winvm launch"
+    echo "   To stop: winvm stop"
+    return 0
+  fi
+
+  notify "Starting Windows VM" "This can take 15-30 seconds" 15000
+
+  if ! $COMPOSE_CMD -f "$COMPOSE_FILE" up -d 2>&1; then
+    msg_error "Failed to start Windows VM!"
+    echo "   Try checking: winvm status"
+    notify "Windows VM" "Failed to start Windows VM"
+    exit 1
+  fi
+
+  sleep 5
+
+  # -------------------------------------------------------------------------
+  # Check for first-time installation
+  # -------------------------------------------------------------------------
+
+  if [ ! -f "$STORAGE_DIR/data.img" ] && [ ! -f "$STORAGE_DIR/data.qcow2" ]; then
+    echo ""
+    echo "First-time Windows installation detected!"
+    echo ""
+    echo "Windows is being installed. This takes 10-20 minutes."
+    echo "Monitor progress at: http://127.0.0.1:8006"
+    echo ""
+    open_url "http://127.0.0.1:8006"
+    return 0
+  fi
+
+  msg_success "Windows VM started!"
+  echo "   Web interface: http://127.0.0.1:8006"
+  echo "   To connect via RDP: winvm launch"
+  echo "   To stop: winvm stop"
+}
+
+#
+# Launch windows VM and connect via RDP
+# Flags can be combined in any order:
+#   --kill, -k     Stop VM after RDP session closes
+#   --remmina      Use Remmina for this session
+#   --freerdp      Use FreeRDP for this session
+# Examples:
+#   winvm launch
+#   winvm launch -k
+#   winvm launch --remmina
+#   winvm launch --remmina -k
+#   winvm launch -k --freerdp
+#
+launch_windows() {
+  KILL_ON_EXIT=false
+  RDP_OVERRIDE=""
+
+  for arg in "$@"; do
+    case "$arg" in
+      --kill|-k)   KILL_ON_EXIT=true ;;
+      --remmina)   RDP_OVERRIDE="remmina" ;;
+      --freerdp)   RDP_OVERRIDE="freerdp" ;;
+    esac
+  done
+
+  # Apply RDP client override if specified
+  [ -n "$RDP_OVERRIDE" ] && RDP_DEFAULT="$RDP_OVERRIDE"
+
+  # -------------------------------------------------------------------------
+  # Check if VM is configured
+  # -------------------------------------------------------------------------
+
+  if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "Windows VM not configured. Please run: winvm install"
+    exit 1
+  fi
+
+  # -------------------------------------------------------------------------
+  # Extract credentials from compose file
+  # -------------------------------------------------------------------------
+
+  WIN_USER=$(grep "USERNAME:" "$COMPOSE_FILE" | sed 's/.*USERNAME: "\(.*\)"/\1/')
+  WIN_PASS=$(grep "PASSWORD:" "$COMPOSE_FILE" | sed 's/.*PASSWORD: "\(.*\)"/\1/')
+
+  # Use defaults if credentials not found in compose file
+  [ -z "$WIN_USER" ] && WIN_USER="docker"
+  [ -z "$WIN_PASS" ] && WIN_PASS="admin"
+
+  # -------------------------------------------------------------------------
+  # Start container if not running
+  # -------------------------------------------------------------------------
+
+  CONTAINER_STATUS=$($ENGINE inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
+
+  if [ "$CONTAINER_STATUS" != "running" ]; then
+    notify "Starting Windows VM" "This can take 15-30 seconds" 15000
+
+    if ! $COMPOSE_CMD -f "$COMPOSE_FILE" up -d 2>&1; then
+      msg_error "Failed to start Windows VM!"
+      echo "   Try checking: winvm status"
+      notify "Windows VM" "Failed to start Windows VM"
+      exit 1
+    fi
+
+    sleep 5
+  fi
+
+  # -------------------------------------------------------------------------
+  # Check for first-time installation
+  # -------------------------------------------------------------------------
+
+  if [ ! -f "$STORAGE_DIR/data.img" ] && [ ! -f "$STORAGE_DIR/data.qcow2" ]; then
+    echo ""
+    echo "⚠️  First-time Windows installation detected!"
+    echo ""
+    echo "Windows is being installed. This takes 10-20 minutes."
+    echo "Once you see the Windows desktop at http://127.0.0.1:8006,"
+    echo "run: winvm launch"
+    echo ""
+    open_url "http://127.0.0.1:8006"
+    exit 0
+  fi
+
+  # -------------------------------------------------------------------------
+  # Wait for RDP to be ready
+  # -------------------------------------------------------------------------
+
+  if ! wait_for_rdp_ready; then
+    msg_error "Failed to connect to Windows VM"
+    exit 1
+  fi
+
+  # -------------------------------------------------------------------------
+  # Build connection info message
+  # -------------------------------------------------------------------------
+
+  LIFECYCLE="VM will keep running after RDP closes
+To stop: winvm stop"
+  if [ "$KILL_ON_EXIT" = true ]; then
+    LIFECYCLE="VM will auto-stop when RDP closes"
+  fi
+
+  ui_box \
+    "Connecting to Windows VM" \
+    "" \
+    "$LIFECYCLE"
+
+  # -------------------------------------------------------------------------
+  # Detect RDP client and display scale
+  # -------------------------------------------------------------------------
+
+  if ! detect_rdp_client; then
+    msg_error "No RDP client found!"
+    echo "   Install one of: remmina, freerdp, xfreerdp, xfreerdp3"
+    exit 1
+  fi
+
+  # -------------------------------------------------------------------------
+  # Connect via RDP
+  # -------------------------------------------------------------------------
+
+  if [ "$RDP_CLIENT" = "remmina" ]; then
+    # Connect using Remmina with URI (includes credentials)
+    remmina -c "rdp://$WIN_USER:$WIN_PASS@127.0.0.1:3389"
+  else
+    # Connect using FreeRDP
+    detect_desktop_environment
+    DISPLAY_SCALE=$(get_display_scale)
+    SCALE_PERCENT=$(echo "$DISPLAY_SCALE" | awk '{print int($1 * 100 + 0.5)}')
+
+    # Set RDP scaling based on display scale
+    RDP_SCALE=""
+    [ "$SCALE_PERCENT" -ge 175 ] && RDP_SCALE="/scale:180"
+    [ "$SCALE_PERCENT" -ge 125 ] && [ "$SCALE_PERCENT" -lt 175 ] && RDP_SCALE="/scale:140"
+
+    $RDP_CLIENT /u:"$WIN_USER" /p:"$WIN_PASS" /v:127.0.0.1:3389 -grab-keyboard /sound /microphone /cert:ignore /dynamic-resolution /gfx:AVC444 /floatbar:sticky:off,default:visible,show:fullscreen $RDP_SCALE
+  fi
+
+  # -------------------------------------------------------------------------
+  # Handle post-connection behavior
+  # -------------------------------------------------------------------------
+
+  if [ "$KILL_ON_EXIT" = true ]; then
+    echo "RDP session closed. Stopping..."
+    $COMPOSE_CMD -f "$COMPOSE_FILE" down
+  else
+    echo ""
+    echo "RDP session closed. Windows VM is still running."
+    echo "To stop it: winvm stop"
+  fi
+}
+
+#
+# Show current status of windows VM
+#
+status_windows() {
+  if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "Windows VM not configured."
+    echo "To set up: winvm install"
+    exit 1
+  fi
+
+  CONTAINER_STATUS=$($ENGINE inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null)
+
+  if [ -z "$CONTAINER_STATUS" ]; then
+    echo "Windows VM container not found."
+    echo "To start: winvm launch"
+  elif [ "$CONTAINER_STATUS" = "running" ]; then
+    ui_box \
+      "Windows VM Status: RUNNING" \
+      "" \
+      "Web interface: http://127.0.0.1:8006" \
+      "RDP available: port 3389" \
+      "" \
+      "To connect: winvm launch" \
+      "To stop:    winvm stop"
+  else
+    echo "Windows VM is stopped (status: $CONTAINER_STATUS)"
+    echo "To start: winvm launch"
+  fi
+}
+
+#
+# Configure winvm settings (directories and RDP client)
+#
+config_windows() {
+  # Create config directory if it doesn't exist
+  mkdir -p "$CONFIG_DIR"
+
+  # Show current settings
+  ui_box \
+    "Current Configuration (Instance: $INSTANCE_NAME)" \
+    "" \
+    "Container:    $CONTAINER_NAME" \
+    "Compose dir:  $COMPOSE_DIR" \
+    "Storage dir:  $STORAGE_DIR" \
+    "Shared dir:   $SHARED_DIR" \
+    "" \
+    "RDP client:   $RDP_CLIENT_TYPE" \
+    "RDP default:  $RDP_DEFAULT"
+
+  echo ""
+  CONFIG_CHOICE=$(ui_menu "What would you like to configure?" "Directories" "RDP Client" "Both" "Cancel")
+
+  case "$CONFIG_CHOICE" in
+    "Cancel")
+      echo "No changes made."
+      exit 0
+      ;;
+    "Directories"|"Both")
+      echo ""
+      echo "Enter new values (press Enter to keep current):"
+      CONTAINER_NAME=$(ui_prompt "Container name" "$CONTAINER_NAME")
+      COMPOSE_DIR=$(ui_prompt "Compose directory" "$COMPOSE_DIR")
+      STORAGE_DIR=$(ui_prompt "Storage directory" "$STORAGE_DIR")
+      SHARED_DIR=$(ui_prompt "Shared directory" "$SHARED_DIR")
+
+      # Resolve ~ to actual home directory
+      COMPOSE_DIR="${COMPOSE_DIR/#\~/$HOME}"
+      STORAGE_DIR="${STORAGE_DIR/#\~/$HOME}"
+      SHARED_DIR="${SHARED_DIR/#\~/$HOME}"
+      COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
+      RDP_FILE="$COMPOSE_DIR/winvm.remmina"
+      ;;&  # Fall through if "Both"
+    "RDP Client"|"Both")
+      echo ""
+      RDP_CHOICE=$(ui_menu "Select RDP client to use:" "FreeRDP" "Remmina" "Both")
+      case "$RDP_CHOICE" in
+        "FreeRDP")
+          RDP_CLIENT_TYPE="freerdp"
+          RDP_DEFAULT="freerdp"
+          ;;
+        "Remmina")
+          RDP_CLIENT_TYPE="remmina"
+          RDP_DEFAULT="remmina"
+          ;;
+        "Both")
+          RDP_CLIENT_TYPE="both"
+          DEFAULT_CHOICE=$(ui_menu "Select default RDP client:" "FreeRDP" "Remmina")
+          if [ "$DEFAULT_CHOICE" = "FreeRDP" ]; then
+            RDP_DEFAULT="freerdp"
+          else
+            RDP_DEFAULT="remmina"
+          fi
+          ;;
+      esac
+      ;;
+  esac
+
+  # Write complete config file
+  cat > "$CONFIG_FILE" <<EOF
+CONTAINER_NAME="$CONTAINER_NAME"
+COMPOSE_DIR="$COMPOSE_DIR"
+STORAGE_DIR="$STORAGE_DIR"
+SHARED_DIR="$SHARED_DIR"
+RDP_CLIENT_TYPE="$RDP_CLIENT_TYPE"
+RDP_DEFAULT="$RDP_DEFAULT"
+EOF
+
+  # Regenerate .remmina file if compose file exists
+  if [ -f "$COMPOSE_FILE" ]; then
+    WIN_USER=$(grep "USERNAME:" "$COMPOSE_FILE" | sed 's/.*USERNAME: "\(.*\)"/\1/')
+    [ -z "$WIN_USER" ] && WIN_USER="docker"
+
+    mkdir -p "$COMPOSE_DIR"
+    cat <<EOF | tee "$RDP_FILE" >/dev/null
+[remmina]
+name=WinVM
+protocol=RDP
+server=127.0.0.1:3389
+username=$WIN_USER
+password=
+domain=
+colordepth=99
+quality=2
+network=lan
+sound=local
+microphone=1
+shareclipboard=1
+disableclipboard=0
+cert_ignore=1
+security=
+viewmode=1
+scale=1
+window_maximize=1
+window_width=1920
+window_height=1080
+resolution_mode=2
+keyboard_grab=1
+glyph-cache=1
+relax-order-checks=1
+EOF
+  fi
+
+  ui_box \
+    "Configuration Updated (Instance: $INSTANCE_NAME)" \
+    "" \
+    "Container:    $CONTAINER_NAME" \
+    "Compose dir:  $COMPOSE_DIR" \
+    "Storage dir:  $STORAGE_DIR" \
+    "Shared dir:   $SHARED_DIR" \
+    "" \
+    "RDP client:   $RDP_CLIENT_TYPE" \
+    "RDP default:  $RDP_DEFAULT"
+}
+
+#
+# Display usage information
+#
+show_usage() {
+  cat <<EOF
+Usage: winvm [--instance NAME] [command] [options]
+
+Global Options:
+  --instance, -i NAME  Use a specific VM instance (default: "default")
+
+Commands:
+  install              Install and configure Windows VM
+  remove               Remove Windows VM and optionally its data
+  config               Configure directories and RDP client settings
+  start                Start Windows VM without connecting via RDP
+  launch [options]     Start Windows VM (if needed) and connect via RDP
+                       Options:
+                         --kill, -k         Stop VM when RDP closes
+                         --remmina          Use Remmina for this session
+                         --freerdp          Use FreeRDP for this session
+  stop                 Stop the running Windows VM
+  status               Show current VM status
+  backup               Backup Windows directory
+  restore              Restore Windows directory from backup
+  help                 Show this help message
+
+Examples:
+  winvm install                  # Set up default Windows VM
+  winvm -i work install          # Set up a separate "work" instance
+  winvm -i work launch           # Launch the "work" instance
+  winvm config                   # Change directories or RDP settings
+  winvm launch                   # Connect to VM (keeps running after)
+  winvm launch -k                # Connect to VM (stops on disconnect)
+  winvm launch --remmina         # Connect using Remmina
+  winvm launch --freerdp -k      # Connect using FreeRDP, stop on exit
+  winvm stop                     # Shut down the VM
+EOF
+}
+
+# ============================================================================
+# COMMAND DISPATCHER
+# ============================================================================
+
+case "$1" in
+install)
+  install_windows
+  ;;
+remove)
+  remove_windows
+  ;;
+config)
+  config_windows
+  ;;
+launch)
+  shift
+  launch_windows "$@"
+  ;;
+start | up)
+  start_windows
+  ;;
+stop | down)
+  $COMPOSE_CMD -f "$COMPOSE_FILE" down
+  ;;
+backup)
+  backup_windows
+  ;;
+restore)
+  restore_windows
+  ;;
+status)
+  status_windows
+  ;;
+help | --help | -h | "")
+  show_usage
+  ;;
+clone)
+  echo "To clone: Backup your current storage, then restore it to a different STORAGE_DIR."
+  ;;
+*)
+  echo "Unknown command: $1" >&2
+  echo "" >&2
+  show_usage >&2
+  exit 1
+  ;;
+esac
